@@ -1,7 +1,11 @@
 #include <Arduino.h>
 #include <PubSubClient.h>
 #include "myFunctions.cpp"
+#include <iostream>
 using namespace std;
+
+#include "MyStone.h"
+MyStone *myStone;
 
 #include <WiFiManager.h>
 WiFiManager wm;
@@ -12,43 +16,24 @@ const char *SSID = "SAC_";
 const char *PASSWORD = "sac_";
 String ssIDRandom;
 
+// MQTT client
+WiFiClient wifiClient;
+PubSubClient mqttClient(wifiClient); 
+char *mqttServer = "broker.hivemq.com";
+int mqttPort = 1883;
+const char *topic = "zigbee2mqtt";
+
+//Définition des trois leds de statut
+#define GPIO_PIN_LED_LOCK_ROUGE 12
+
 //Variable pour vitesse baud Serial
 #define BAUD 9600
 
 //Variable pour le code (Pin) entré
 std::string code = "1234";
 
-//fonction statique qui permet aux objets d'envoyer des messages (callBack) 
-//  arg0 : Action 
-// arg1 ... : Parametres
-std::string CallBackMessageListener(string message) {
-    while(replaceAll(message, std::string("  "), std::string(" ")));
-    //Décortiquer le message
-    string actionToDo = getValue(message, ' ', 0);
-    string arg1 = getValue(message, ' ', 1);
-    string arg2 = getValue(message, ' ', 2);
-    string arg3 = getValue(message, ' ', 3);
-    string arg4 = getValue(message, ' ', 4);
-    string arg5 = getValue(message, ' ', 5);
-    string arg6 = getValue(message, ' ', 6);
-    string arg7 = getValue(message, ' ', 7);
-    string arg8 = getValue(message, ' ', 8);
-    string arg9 = getValue(message, ' ', 9);
-    string arg10 = getValue(message, ' ', 10);
-    
-    if (string(actionToDo.c_str()).compare(string("askCode")) == 0) {     
-        return(code.c_str()); }
-   
-    std::string result = "";
-    return result;
-    }
-
-void setup() {
-  Serial.begin(BAUD);
-  delay(100);
-  
-  //---------Connection au WifiManager--------------
-    String ssIDRandom, PASSRandom;
+void connectToWiFi() {
+  String ssIDRandom, PASSRandom;
     String stringRandom;
     stringRandom = get_random_string(4).c_str();
     ssIDRandom = SSID;
@@ -65,6 +50,70 @@ void setup() {
       }
 }
 
+void setupMQTT() {
+  mqttClient.setServer(mqttServer, mqttPort);
+  // set the callback function
+  mqttClient.setCallback(callback);
+}
+
+void reconnect() {
+  Serial.println("Connecting to MQTT Broker...");
+  while (!mqttClient.connected()) {
+      Serial.println("Reconnecting to MQTT Broker..");
+      String clientId = "ESP32Client-";
+      clientId += String(random(0xffff), HEX);
+      
+      if (mqttClient.connect(clientId.c_str())) {
+        Serial.println("Connected.");
+        // subscribe to topic
+        mqttClient.subscribe(topic);
+      }
+  }
+}
+
+void callback(char* topic, byte* message, unsigned int length) {
+  Serial.print("Message arrived on topic: ");
+  Serial.print(topic);
+  Serial.print(". Message: ");
+  String messageTemp;
+  
+  for (int i = 0; i < length; i++) {
+    Serial.print((char)message[i]);
+    messageTemp += (char)message[i];
+  }
+  Serial.println();
+
+  // Valide le message entrant pour la demande du code de l'alarme
+  if (String(topic) == "zigbee2mqtt/askCode01") {
+    if(messageTemp == "on"){
+      Serial.println("Veuillez entrer le PIN code pour arrêter l'alarme!");
+      digitalWrite(GPIO_PIN_LED_LOCK_ROUGE, HIGH);
+    }
+    else if(messageTemp == "off"){
+      Serial.println("Code Ok!");
+      digitalWrite(GPIO_PIN_LED_LOCK_ROUGE, LOW);
+    }
+  }
+}
+
+void setup() {
+  Serial.begin(9600);
+  connectToWiFi();
+  setupMQTT();
+  pinMode(GPIO_PIN_LED_LOCK_ROUGE, OUTPUT);
+}
+
 void loop() {
-  // put your main code here, to run repeatedly:
+  if (!mqttClient.connected())
+    reconnect();
+  mqttClient.loop();
+  //Si le bouton "Enter" est peser sur le Stone = Publish le code
+  if(){
+    if(){
+      mqttClient.publish(topic, code.c_str());
+    }
+    else{
+      Serial.print("");
+    }
+  }
 }
