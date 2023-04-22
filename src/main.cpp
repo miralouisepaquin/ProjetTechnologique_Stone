@@ -4,12 +4,14 @@
 #include <iostream>
 using namespace std;
 
-#include "MyStone.h"
-MyStone *myStone;
-
 #include <WiFiManager.h>
 WiFiManager wm;
 #define WEBSERVER_H
+
+/*IPAddress ip(172, 16, 23, 100);
+IPAddress dns(172, 16, 4, 2);
+IPAddress gateway(172, 16, 4, 2);
+IPAddress subnet(255, 255, 252, 0);*/
 
 //Variable pour la connection Wifi
 const char *SSID = "SAC_";
@@ -21,7 +23,7 @@ WiFiClient wifiClient;
 PubSubClient mqttClient(wifiClient); 
 const char *mqttServer = "172.16.5.100";
 int mqttPort = 1883;
-const char *topic = "zigbee2mqtt/askCode01";
+const char *topic = "zigbee2mqtt";
 
 //Pour la gestion des boutons
 #include "MyButton.h"
@@ -58,6 +60,7 @@ void connectToWiFi() {
     sprintf(strToPrint, "Identification : %s   MotDePasse: %s", ssIDRandom, PASSRandom);
     Serial.println(strToPrint);
 
+    //WiFi.config(ip, gateway, subnet, dns);
     if (!wm.autoConnect(ssIDRandom.c_str(), PASSRandom.c_str())){
       Serial.println("Erreur de connexion.");
       }
@@ -92,9 +95,9 @@ void callback(char* topic, byte* message, unsigned int length) {
     }
 
   // Valide le message entrant pour la demande du code de l'alarme
-  if (strcmp(topic,"zigbee2mqtt/askCode01")==0) {
+  if (strcmp(topic,"zigbee2mqtt")==0) {
     delay(100);
-    if(strcmp(messageTemp.c_str(),"on")==0 && digitalRead(GPIO_PIN_LED_LOCK_ROUGE)==false){
+    if(strcmp(messageTemp.c_str(),"askCode01")==0 && digitalRead(GPIO_PIN_LED_LOCK_ROUGE)==false){
       Serial.println("\nVeuillez entrer le PIN code pour arrêter l'alarme!");
       digitalWrite(GPIO_PIN_LED_LOCK_ROUGE, HIGH);
     }
@@ -137,7 +140,7 @@ void loop() {
   delay(100);
   //Si le bouton "Enter" est peser sur le Stone = Publish le code
   if(buttonEnter == 1){
-    mqttClient.publish(topic, code.c_str());
+    mqttClient.publish("zigbee2mqtt/code01", code.c_str());
     digitalWrite(GPIO_PIN_LED_LOCK_ROUGE, LOW);
     buttonEnter = 0;
   }
