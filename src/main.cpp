@@ -1,22 +1,12 @@
 #include <Arduino.h>
+#include <WiFi.h>
+#include <ESPAsyncWebServer.h>
+#include <AsyncTCP.h>
+#include "SPIFFS.h"
 #include <PubSubClient.h>
 #include "myFunctions.cpp"
 #include <iostream>
 using namespace std;
-
-#include <WiFiManager.h>
-WiFiManager wm;
-#define WEBSERVER_H
-
-/*IPAddress ip(172, 16, 23, 100);
-IPAddress dns(172, 16, 4, 2);
-IPAddress gateway(172, 16, 4, 2);
-IPAddress subnet(255, 255, 252, 0);*/
-
-//Variable pour la connection Wifi
-const char *SSID = "SAC_";
-const char *PASSWORD = "sac_";
-String ssIDRandom;
 
 // MQTT client
 WiFiClient wifiClient;
@@ -46,27 +36,119 @@ bool buttonEnter = 0;
 //Variable pour le message du subscribe
 String messageTemp;
 
-void connectToWiFi() {
-  String ssIDRandom, PASSRandom;
-    String stringRandom;
-    stringRandom = get_random_string(4).c_str();
-    ssIDRandom = SSID;
-    ssIDRandom = ssIDRandom + stringRandom;
-    stringRandom = get_random_string(4).c_str();
-    PASSRandom = PASSWORD;
-    PASSRandom = PASSRandom + stringRandom;
+// Create AsyncWebServer object on port 80
+AsyncWebServer server(80);
 
-    char strToPrint[128];
-    sprintf(strToPrint, "Identification : %s   MotDePasse: %s", ssIDRandom, PASSRandom);
-    Serial.println(strToPrint);
+// Search for parameter in HTTP POST request
+const char* PARAM_INPUT_1 = "ip";
+const char* PARAM_INPUT_2 = "dns";
+const char* PARAM_INPUT_3 = "gateway";
+const char* PARAM_INPUT_4 = "subnet";
+const char* PARAM_INPUT_5 = "ssid";
+const char* PARAM_INPUT_6 = "pass";
 
-    //WiFi.config(ip, gateway, subnet, dns);
-    if (!wm.autoConnect(ssIDRandom.c_str(), PASSRandom.c_str())){
-      Serial.println("Erreur de connexion.");
-      }
-    else {
-      Serial.println("Connexion Établie:");
-      }
+
+//Variables to save values from HTML form
+String ip;
+String dns;
+String gateway;
+String subnet;
+String ssid;
+String pass;
+
+// File paths to save input values permanently
+const char* dnsPath = "/dns.txt";
+const char* subnetPath = "/subnet.txt";
+const char* ipPath = "/ip.txt";
+const char* gatewayPath = "/gateway.txt";
+const char* ssidPath = "/ssid.txt";
+const char* passPath = "/pass.txt";
+
+IPAddress localIP;
+IPAddress localDNS;
+IPAddress localGateway;
+IPAddress localSubnet;
+
+// Timer variables
+unsigned long previousMillis = 0;
+const long interval = 10000;  // interval to wait for Wi-Fi connection (milliseconds)
+
+// Initialize SPIFFS
+void initSPIFFS() {
+  if (!SPIFFS.begin(true)) {
+    Serial.println("An error has occurred while mounting SPIFFS");
+  }
+  Serial.println("SPIFFS mounted successfully");
+}
+
+// Read File from SPIFFS
+String readFile(fs::FS &fs, const char * path){
+  Serial.printf("Reading file: %s\r\n", path);
+
+  File file = fs.open(path);
+  if(!file || file.isDirectory()){
+    Serial.println("- failed to open file for reading");
+    return String();
+  }
+  
+  String fileContent;
+  while(file.available()){
+    fileContent = file.readStringUntil('\n');
+    break;     
+  }
+  return fileContent;
+}
+
+// Write file to SPIFFS
+void writeFile(fs::FS &fs, const char * path, const char * message){
+  Serial.printf("Writing file: %s\r\n", path);
+
+  File file = fs.open(path, FILE_WRITE);
+  if(!file){
+    Serial.println("- failed to open file for writing");
+    return;
+  }
+  if(file.print(message)){
+    Serial.println("- file written");
+  } else {
+    Serial.println("- write failed");
+  }
+}
+
+// Initialize WiFi
+bool initWiFi() {
+  if(ssid=="" || ip==""){
+    Serial.println("Undefined SSID or IP address.");
+    return false;
+  }
+
+  WiFi.mode(WIFI_STA);
+  localIP.fromString(ip.c_str());
+  localDNS.fromString(dns.c_str());
+  localSubnet.fromString(subnet.c_str());
+  localGateway.fromString(gateway.c_str());
+
+
+  if (!WiFi.config(localIP, localGateway, localSubnet, localDNS)){
+    Serial.println("STA Failed to configure");
+    return false;
+  }
+  WiFi.begin(ssid.c_str(), pass.c_str());
+  Serial.println("Connecting to WiFi...");
+
+  unsigned long currentMillis = millis();
+  previousMillis = currentMillis;
+
+  while(WiFi.status() != WL_CONNECTED) {
+    currentMillis = millis();
+    if (currentMillis - previousMillis >= interval) {
+      Serial.println("Failed to connect.");
+      return false;
+    }
+  }
+
+  Serial.println(WiFi.localIP());
+  return true;
 }
 
 void reconnect() {
@@ -111,9 +193,105 @@ void setupMQTT() {
 }
 
 void setup() {
-  Serial.begin(9600);
-  connectToWiFi();
-  setupMQTT();
+  // Serial port for debugging purposes
+  Serial.begin(115200);
+
+  initSPIFFS();
+  
+  // Load values saved in SPIFFS
+  ssid = readFile (SPIFFS, ssidPath);
+  pass = readFile (SPIFFS, passPath);
+  dns = readFile(SPIFFS, dnsPath);
+  subnet = readFile(SPIFFS, subnetPath);
+  ip = readFile(SPIFFS, ipPath);
+  gateway = readFile (SPIFFS, gatewayPath);
+  Serial.println(ssid);
+  Serial.println(pass);
+  Serial.println(ip);
+  Serial.println(dns);
+  Serial.println(gateway);
+  Serial.println(subnet);
+
+  if(initWiFi()) {
+    setupMQTT();
+  }
+  else {
+    // Connect to Wi-Fi network with SSID and password
+    Serial.println("Setting AP (Access Point)");
+    // NULL sets an open Access Point
+    WiFi.softAP("ESP-WIFI-MANAGER", NULL);
+
+    IPAddress IP = WiFi.softAPIP();
+    Serial.print("AP IP address: ");
+    Serial.println(IP); 
+
+    // Web Server Root URL
+    server.on("/", HTTP_GET, [](AsyncWebServerRequest *request){
+      request->send(SPIFFS, "/wifimanager.html", "text/html");
+    });
+    
+    server.serveStatic("/", SPIFFS, "/");
+    
+    server.on("/", HTTP_POST, [](AsyncWebServerRequest *request) {
+      int params = request->params();
+      for(int i=0;i<params;i++){
+        AsyncWebParameter* p = request->getParam(i);
+        if(p->isPost()){
+          // HTTP POST ip value
+          if (p->name() == PARAM_INPUT_1) {
+            ip = p->value().c_str();
+            Serial.print("IP set to: ");
+            Serial.println(ip);
+            // Write file to save value
+            writeFile(SPIFFS, ipPath, ip.c_str());
+          }
+          // HTTP POST dns value
+          if (p->name() == PARAM_INPUT_2) {
+            dns = p->value().c_str();
+            Serial.print("DNS set to: ");
+            Serial.println(dns);
+            // Write file to save value
+            writeFile(SPIFFS, dnsPath, dns.c_str());
+          }
+          // HTTP POST gateway value
+          if (p->name() == PARAM_INPUT_3) {
+            gateway = p->value().c_str();
+            Serial.print("gateway set to: ");
+            Serial.println(gateway);
+            // Write file to save value
+            writeFile(SPIFFS, gatewayPath, gateway.c_str());
+          }
+          // HTTP POST subnet value
+          if (p->name() == PARAM_INPUT_4) {
+            subnet = p->value().c_str();
+            Serial.print("subnet set to: ");
+            Serial.println(subnet);
+            // Write file to save value
+            writeFile(SPIFFS, subnetPath, subnet.c_str());
+          }
+          // HTTP POST ip value
+          if (p->name() == PARAM_INPUT_5) {
+            ssid = p->value().c_str();
+            Serial.print("SSID set to: ");
+            Serial.println(ssid);
+            // Write file to save value
+            writeFile(SPIFFS, ssidPath, ssid.c_str());
+          }// HTTP POST ip value
+          if (p->name() == PARAM_INPUT_6) {
+            pass = p->value().c_str();
+            Serial.print("Pass set to: ");
+            Serial.println(pass);
+            // Write file to save value
+            writeFile(SPIFFS, passPath, pass.c_str());
+          }
+        }
+      }
+      request->send(200, "text/plain", "Done. ESP will restart, connect to your router and go to IP address: " + ip);
+      delay(30);
+      ESP.restart();
+    });
+    server.begin();
+  }
 
   //Gestion des boutons
   myButtonAction = new MyButton();        //Pour lire le bouton actions
