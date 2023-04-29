@@ -14,9 +14,9 @@ Voici la liste des technologies utilisées dans le projet:
 * [C++](https://cplusplus.com/doc/tutorial/)
 * [Mosquitto](https://mosquitto.org/): Version 5.0
 * [API Rest](https://www.bezkoder.com/node-express-mongodb-crud-rest-api/): Version 4.18.1
-* [me-no-dev/ESP Async WebServer]: Version 1.2.3
-* [knolleary/PubSubClient@^2.8]: Version 2.8
-* [WifiManager]: Version 2.0.4
+* [me-no-dev/ESP Async WebServer](https://github.com/me-no-dev/ESPAsyncWebServer): Version 1.2.3
+* [knolleary/PubSubClient](https://github.com/knolleary/pubsubclient): Version 2.8
+* [WifiManager](https://github.com/tzapu/WiFiManager): Version 2.0.4
 ## Installation
 ***
 Les librairies sont déjà toutes dans le projets. Il suffit de s'assurer d'avoir un ESP32 pour utiliser le programme.
